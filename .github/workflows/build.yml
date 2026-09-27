@@ -1,0 +1,94 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  # Pinned upstream sources (the four Mantella SKSE plugins).
+  SKSE_HTTP_SHA: 8da249b677b9543ffb4284f9ad0a300d72f69d58
+  MANTELLA_DIALOGUE_SHA: 4c5d9c5250382dc7ed80430965b0c313fd1d7b8b
+  MANTELLA_LAUNCHER_SHA: a7fdb92eeb94403f59d6264f043217bc1c55c090
+  MANTELLA_SUBTITLES_SHA: 053a81474334423186e469672373b8e7dafb5676
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-binary-cache
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('ports/**') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Fetch pinned plugin sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch() { git init -q "$2" && git -C "$2" remote add origin "$1" \
+            && git -C "$2" fetch -q --depth 1 origin "$3" && git -C "$2" checkout -q FETCH_HEAD; }
+          fetch https://github.com/Leidtier/SKSE_HTTP                     _deps/SKSE_HTTP                     "$SKSE_HTTP_SHA"
+          fetch https://github.com/mikastamm/mantella-vanilla-dialogue     _deps/mantella-vanilla-dialogue     "$MANTELLA_DIALOGUE_SHA"
+          fetch https://github.com/art-from-the-machine/Mantella-SKSE-Launcher _deps/Mantella-SKSE-Launcher    "$MANTELLA_LAUNCHER_SHA"
+          fetch https://github.com/swwu/Mantella-Subtitles-Plugin-NG       _deps/Mantella-Subtitles-Plugin-NG  "$MANTELLA_SUBTITLES_SHA"
+
+      - name: Apply source fixups
+        shell: bash
+        run: |
+          set -euo pipefail
+          for p in patches/SKSE_HTTP-*.patch;                     do git -C _deps/SKSE_HTTP                    apply "$OLDPWD/$p"; done
+          for p in patches/mantella-vanilla-dialogue-*.patch;     do git -C _deps/mantella-vanilla-dialogue    apply "$OLDPWD/$p"; done
+          for p in patches/Mantella-SKSE-Launcher-*.patch;        do git -C _deps/Mantella-SKSE-Launcher       apply "$OLDPWD/$p"; done
+          for p in patches/Mantella-Subtitles-Plugin-NG-*.patch;  do git -C _deps/Mantella-Subtitles-Plugin-NG apply "$OLDPWD/$p"; done
+          # The repos pin a vcpkg registry frozen in 2022 (CommonLibSSE-NG 3.6,
+          # no Address Library V5). commonlibsse-ng comes from our overlay port
+          # instead; the rest resolves at a recent microsoft/vcpkg baseline.
+          for m in SKSE_HTTP mantella-vanilla-dialogue Mantella-SKSE-Launcher Mantella-Subtitles-Plugin-NG; do
+            printf '%s\n' '{"default-registry":{"kind":"git","repository":"https://github.com/microsoft/vcpkg.git","baseline":"07f4812200df3d3c931c0c8a6081d3b21fe2bf9f"}}' > "_deps/$m/vcpkg-configuration.json"
+          done
+
+      - name: Configure & build (MSVC, vcpkg overlay port = CommonLibSSE-NG 6.8.0)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($m in @("SKSE_HTTP","mantella-vanilla-dialogue","Mantella-SKSE-Launcher","Mantella-Subtitles-Plugin-NG")) {
+            cmake -S "_deps/$m" -B "build/$m" -G "Visual Studio 17 2022" -A x64 `
+              "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+              -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
+              "-DVCPKG_OVERLAY_PORTS=$PWD\ports" `
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
+              "-DCMAKE_CXX_FLAGS=/DUNICODE /D_UNICODE /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS"
+            cmake --build "build/$m" --config Release --parallel
+          }
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item build/SKSE_HTTP/Release/SKSE_HTTP.dll out/
+          Copy-Item build/mantella-vanilla-dialogue/Release/MantellaDialogue.dll out/
+          Copy-Item build/Mantella-SKSE-Launcher/Release/MantellaLauncher.dll out/
+          Copy-Item build/Mantella-Subtitles-Plugin-NG/Release/MantellaSubtitles.dll out/
+
+      - name: Verify the PEs (exports, Address Library V5 reader)
+        shell: bash
+        run: python tools/verify-dll.py out/*.dll
+
+      - name: Package the FOMOD override
+        shell: bash
+        run: WORK="$PWD" OUTDIR="$PWD/dist" python tools/package.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mantella-AE1.7.104-SKSE-Plugins
+          path: dist/*.zip
+
+      - name: Release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: gh release create "${{ github.ref_name }}" dist/*.zip --title "${{ github.ref_name }}" --notes "Rebuilt Mantella SKSE plugins for Skyrim AE 1.7.104 (Address Library V5). Install AFTER the base Mantella mod."
+        env:
+          GH_TOKEN: ${{ github.token }}
