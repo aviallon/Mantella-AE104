@@ -93,12 +93,14 @@ jobs:
 
       - name: Build the four plugins (MSVC, vcpkg overlay port = CommonLibSSE-NG 6.8.0)
         shell: bash
-        # Git Bash rewrites arguments that look like POSIX paths (/DUNICODE ->
-        # C:/Program Files/Git/DUNICODE), which turns MSVC defines into "source
-        # files". The runner carries VS 18 (2026), so the VS *generator* is also
-        # a trap — msvc-dev-cmd + Ninja above sidesteps it.
-        env:
-          MSYS2_ARG_CONV_EXCL: "*"
+        # Git Bash rewrites arguments that look like POSIX paths, so MSVC
+        # defines are written as -DUNICODE (cl.exe accepts -D): a leading /D
+        # becomes 'C:/Program Files/Git/DUNICODE'. Real paths ($PWD/ports) must
+        # KEEP the MSYS conversion, so no blanket MSYS2_ARG_CONV_EXCL here — an
+        # earlier version of this step set it and vcpkg then refused
+        # 'D:/d/a/.../ports' as a missing overlay directory.
+        # NB: the runner carries VS 18 (2026), so the VS *generator* is a trap —
+        # msvc-dev-cmd + Ninja above sidesteps it.
         run: |
           set -euo pipefail
           # vcpkg refuses VCPKG_DEFAULT_BINARY_CACHE pointing at a directory
@@ -112,7 +114,7 @@ jobs:
               -DVCPKG_TARGET_TRIPLET=x64-windows-static-md \
               "-DVCPKG_OVERLAY_PORTS=$PWD/ports" \
               -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-              "-DCMAKE_CXX_FLAGS=/DUNICODE /D_UNICODE /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS"
+              "-DCMAKE_CXX_FLAGS=-DUNICODE -D_UNICODE -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS"
             cmake --build "build/$m"
             mkdir -p out
             cp "build/$m/$out" "out/$out"
