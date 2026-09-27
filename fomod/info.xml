@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fomod>
+  <name>Mantella — SKSE Plugins (AE 1.7.104)</name>
+  <author>Mantella plugin authors (rebuilt for AE 1.7.104)</author>
+  <version>r2</version>
+  <description>Override propre des 4 DLL SKSE de Mantella, rebâties contre CommonLibSSE-NG 6.8.0 pour le runtime AE 1.7.104 (Address Library V5). À installer après le mod de base.</description>
+  <website>https://www.nexusmods.com/skyrimspecialedition/mods/98631</website>
+</fomod>
