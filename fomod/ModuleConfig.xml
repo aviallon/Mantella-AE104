@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://qconsulting.ca/fo3/ModConfig5.0.xsd">
+  <moduleName>Mantella — SKSE Plugins (AE 1.7.104)</moduleName>
+  <moduleDependencies />
+  <requiredInstallFiles>
+    <file source="SKSE" destination="SKSE" />
+  </requiredInstallFiles>
+  <installSteps order="Explicit">
+    <installStep name="Override des plugins SKSE de Mantella">
+      <optionalFileGroups order="Explicit">
+        <group name="Installation" type="SelectExactlyOne">
+          <plugins order="Explicit">
+            <plugin name="Remplacer les 4 DLL (recommandé)">
+              <description>Remplace SKSE_HTTP.dll, MantellaDialogue.dll, MantellaLauncher.dll et MantellaSubtitles.dll du mod de base par des versions compilées pour le runtime AE 1.7.104 (lecture de l'Address Library V5). À installer APRÈS le mod Mantella de base.</description>
+              <typeDescriptor>
+                <type name="Recommended" />
+              </typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+  </installSteps>
+</config>

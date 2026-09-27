@@ -1,0 +1,11 @@
+--- a/plugin.cpp
++++ b/plugin.cpp
+@@ -340,7 +340,7 @@
+     char exe_path[_MAX_PATH];
+ 
+     if (ssIndex != nullptr) {
+-        int SSidx = ssIndex->GetUInt() - 1;
++        int SSidx = ssIndex->GetUnsignedInteger() - 1;
+ 
+         GetModuleFileNameA(NULL, exe_path, _MAX_PATH);			// Skyrim exe
+         std::filesystem::path app_path(exe_path);

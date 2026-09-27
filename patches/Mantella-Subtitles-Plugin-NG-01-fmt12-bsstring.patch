@@ -1,0 +1,20 @@
+--- a/Papyrus.cpp
++++ b/Papyrus.cpp
+@@ -24,7 +24,7 @@
+     // string), and the primitive types are converted to <code>bool</code>, <code>int</code>, and <code>float</code>.
+ 
+     bool SetInjectTopicAndSubtitleForSpeakerPapyrus(RE::StaticFunctionTag*, RE::Actor* speaker, RE::TESTopic* topic, RE::BSString subtitle) { 
+-        SKSE::log::debug("Set inject for topic {:x} with subtitle \"{}\"", topic->GetFormID(), subtitle);
++        SKSE::log::debug("Set inject for topic {:x} with subtitle \"{}\"", topic->GetFormID(), subtitle.c_str());
+         injectSpeaker = speaker;
+         injectTopic = topic;
+         injectSubtitle = subtitle;
+@@ -36,7 +36,7 @@
+     // cases where we're adding "overriding" subtitles for someone who is
+     // already speaking.
+     bool AddSubtitleForSpeaker(RE::Actor* speaker, RE::BSString subtitle, int32_t ms_to_show) {
+-        SKSE::log::debug("Injecting subtitle for speaker {:x} with subtitle \"{}\"", speaker->GetFormID(), subtitle);
++        SKSE::log::debug("Injecting subtitle for speaker {:x} with subtitle \"{}\"", speaker->GetFormID(), subtitle.c_str());
+         auto* subtitleManager = RE::SubtitleManager::GetSingleton();
+ 
+         // I assume this lock is for contention over the subtitle manager, but
