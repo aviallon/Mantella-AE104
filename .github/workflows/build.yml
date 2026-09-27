@@ -43,10 +43,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for p in patches/SKSE_HTTP-*.patch;                     do git -C _deps/SKSE_HTTP                    apply "$OLDPWD/$p"; done
-          for p in patches/mantella-vanilla-dialogue-*.patch;     do git -C _deps/mantella-vanilla-dialogue    apply "$OLDPWD/$p"; done
-          for p in patches/Mantella-SKSE-Launcher-*.patch;        do git -C _deps/Mantella-SKSE-Launcher       apply "$OLDPWD/$p"; done
-          for p in patches/Mantella-Subtitles-Plugin-NG-*.patch;  do git -C _deps/Mantella-Subtitles-Plugin-NG apply "$OLDPWD/$p"; done
+          # NB: `git -C` does not touch $OLDPWD/$PWD — paths resolve against the
+          # workspace we started in, and empty globs (a plugin with no patch)
+          # must be skipped, not passed to `git apply` literally.
+          apply() { for p in patches/$1-*.patch; do [ -e "$p" ] || continue; git -C "_deps/$1" apply "$PWD/$p"; done; }
+          apply SKSE_HTTP
+          apply mantella-vanilla-dialogue
+          apply Mantella-SKSE-Launcher
+          apply Mantella-Subtitles-Plugin-NG
           # The repos pin a vcpkg registry frozen in 2022 (CommonLibSSE-NG 3.6,
           # no Address Library V5). commonlibsse-ng comes from our overlay port
           # instead; the rest resolves at a recent microsoft/vcpkg baseline.
