@@ -16,6 +16,12 @@
           <plugins order="Explicit">
             <plugin name="Remplacer les 4 DLL (recommandé)">
               <description>Remplace SKSE_HTTP.dll, MantellaDialogue.dll, MantellaLauncher.dll et MantellaSubtitles.dll du mod de base par des versions compilées pour le runtime AE 1.7.104 (lecture de l'Address Library V5). À installer APRÈS le mod Mantella de base, qui doit rester activé (il fournit Mantella.esp, les scripts Papyrus et MantellaSoftware).</description>
+              <files>
+                <file source="SKSE/Plugins/SKSE_HTTP.dll" destination="SKSE/Plugins/SKSE_HTTP.dll" />
+                <file source="SKSE/Plugins/MantellaDialogue.dll" destination="SKSE/Plugins/MantellaDialogue.dll" />
+                <file source="SKSE/Plugins/MantellaLauncher.dll" destination="SKSE/Plugins/MantellaLauncher.dll" />
+                <file source="SKSE/Plugins/MantellaSubtitles.dll" destination="SKSE/Plugins/MantellaSubtitles.dll" />
+              </files>
               <typeDescriptor>
                 <type name="Recommended" />
               </typeDescriptor>
