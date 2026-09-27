@@ -1,9 +1,25 @@
 name: build
 
+# Rebuilds the four Mantella SKSE plugin DLLs for Skyrim AE 1.7.104 and ships
+# them as a FOMOD override of the base Mantella mod (Nexus 98631).
+#
+# Follows the mod-porting CI pattern proven in HeapSentinel / SexLabPPrism-re:
+#   * CommonLibSSE-NG pinned to a revision whose include/REL/IDDB.h declares
+#     Format::SSEv5 (the 1.7.104 Address Library reader) — asserted BEFORE the
+#     build, so a green run cannot come from the wrong reader;
+#   * the upstream plugin sources pinned by commit;
+#   * verification gates that can fail (tools/verify-dll.py parses the
+#     SKSEPlugin_Version export and the V5 reader strings;
+#     tools/validate_fomod.py rejects a FOMOD whose <file source> is not a real
+#     file — the bug that shipped as "Copied 0 item(s)" in Amethyst);
+#   * the FOMOD zip as the release asset (softprops/action-gh-release).
+
 on:
   push:
-    branches: [main]
+    branches: ["main"]
     tags: ["v*"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 env:
@@ -14,11 +30,12 @@ env:
   MANTELLA_SUBTITLES_SHA: 053a81474334423186e469672373b8e7dafb5676
   VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-binary-cache
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +44,21 @@ jobs:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: vcpkg-${{ runner.os }}-${{ hashFiles('ports/**') }}
           restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Assert the CommonLibSSE-NG pin can read Address Library V5
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Single source of truth: the REF our overlay port builds.
+          sha=$(grep -oP '^\s+REF \K[0-9a-f]{40}' ports/commonlibsse-ng/portfile.cmake)
+          [ -n "$sha" ] || { echo "::error::could not read the CommonLibSSE-NG REF from ports/commonlibsse-ng/portfile.cmake"; exit 1; }
+          echo "CommonLibSSE-NG pin: $sha"
+          mkdir -p .clng-check && cd .clng-check
+          git init -q . && git remote add origin https://github.com/alandtse/CommonLibVR.git
+          git fetch -q --depth 1 origin "$sha" && git checkout -q FETCH_HEAD
+          test -f include/REL/IDDB.h || { echo "::error::IDDB.h missing - wrong revision"; exit 1; }
+          grep -q "SSEv5" include/REL/IDDB.h || { echo "::error::no SSEv5 in IDDB.h - this pin cannot read the 1.7.104 versionlib bins"; exit 1; }
+          echo "format-5 Address Library reader present in the pinned revision"
 
       - name: Fetch pinned plugin sources
         shell: bash
@@ -43,56 +75,89 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # NB: `git -C` does not touch $OLDPWD/$PWD — paths resolve against the
-          # workspace we started in, and empty globs (a plugin with no patch)
-          # must be skipped, not passed to `git apply` literally.
+          # `git -C` does not touch $PWD, and empty globs (a plugin with no
+          # patch) must be skipped, not passed to `git apply` literally.
           apply() { for p in patches/$1-*.patch; do [ -e "$p" ] || continue; git -C "_deps/$1" apply "$PWD/$p"; done; }
           apply SKSE_HTTP
           apply mantella-vanilla-dialogue
           apply Mantella-SKSE-Launcher
           apply Mantella-Subtitles-Plugin-NG
-          # The repos pin a vcpkg registry frozen in 2022 (CommonLibSSE-NG 3.6,
-          # no Address Library V5). commonlibsse-ng comes from our overlay port
-          # instead; the rest resolves at a recent microsoft/vcpkg baseline.
+          # The upstream repos pin a vcpkg registry frozen in 2022
+          # (CommonLibSSE-NG 3.6/3.7: no V5 reader). commonlibsse-ng comes from
+          # our overlay port instead; the rest resolves at a recent baseline.
           for m in SKSE_HTTP mantella-vanilla-dialogue Mantella-SKSE-Launcher Mantella-Subtitles-Plugin-NG; do
             printf '%s\n' '{"default-registry":{"kind":"git","repository":"https://github.com/microsoft/vcpkg.git","baseline":"07f4812200df3d3c931c0c8a6081d3b21fe2bf9f"}}' > "_deps/$m/vcpkg-configuration.json"
           done
 
-      - name: Configure & build (MSVC, vcpkg overlay port = CommonLibSSE-NG 6.8.0)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          foreach ($m in @("SKSE_HTTP","mantella-vanilla-dialogue","Mantella-SKSE-Launcher","Mantella-Subtitles-Plugin-NG")) {
-            cmake -S "_deps/$m" -B "build/$m" -G "Visual Studio 17 2022" -A x64 `
-              "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
-              -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
-              "-DVCPKG_OVERLAY_PORTS=$PWD\ports" `
-              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
-              "-DCMAKE_CXX_FLAGS=/DUNICODE /D_UNICODE /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS"
-            cmake --build "build/$m" --config Release --parallel
-          }
-          New-Item -ItemType Directory -Force out | Out-Null
-          Copy-Item build/SKSE_HTTP/Release/SKSE_HTTP.dll out/
-          Copy-Item build/mantella-vanilla-dialogue/Release/MantellaDialogue.dll out/
-          Copy-Item build/Mantella-SKSE-Launcher/Release/MantellaLauncher.dll out/
-          Copy-Item build/Mantella-Subtitles-Plugin-NG/Release/MantellaSubtitles.dll out/
+      - uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Verify the PEs (exports, Address Library V5 reader)
+      - name: Build the four plugins (MSVC, vcpkg overlay port = CommonLibSSE-NG 6.8.0)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # vcpkg refuses VCPKG_DEFAULT_BINARY_CACHE pointing at a directory
+          # that does not exist yet (a cold cache restores nothing).
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          build_one() {
+            local m=$1 out=$2
+            cmake -S "_deps/$m" -B "build/$m" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+              -DVCPKG_TARGET_TRIPLET=x64-windows-static-md \
+              "-DVCPKG_OVERLAY_PORTS=$PWD/ports" \
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+              "-DCMAKE_CXX_FLAGS=/DUNICODE /D_UNICODE /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS"
+            cmake --build "build/$m"
+            mkdir -p out
+            cp "build/$m/$out" "out/$out"
+          }
+          build_one SKSE_HTTP                     SKSE_HTTP.dll
+          build_one mantella-vanilla-dialogue     MantellaDialogue.dll
+          build_one Mantella-SKSE-Launcher        MantellaLauncher.dll
+          build_one Mantella-Subtitles-Plugin-NG  MantellaSubtitles.dll
+
+      - name: Verify the PEs (exports, SKSEPlugin_Version, V5 reader)
         shell: bash
         run: python tools/verify-dll.py out/*.dll
 
-      - name: Package the FOMOD override
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mantella-SKSE-Plugins
+          path: out/*.dll
+
+  fomod:
+    name: FOMOD package + validation
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Mantella-SKSE-Plugins
+          path: out
+
+      - name: Validate the FOMOD and build the archive
         shell: bash
-        run: WORK="$PWD" OUTDIR="$PWD/dist" python tools/package.py
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libxml2-utils
+          WORK="$PWD" OUTDIR="$PWD/dist" python3 tools/package.py
+          python3 tools/validate_fomod.py --zip dist/Mantella-AE1.7.104-SKSE-Plugins-fixed.zip
+          sha256sum dist/*.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Mantella-AE1.7.104-SKSE-Plugins
+          name: Mantella-AE1.7.104-SKSE-Plugins-FOMOD
           path: dist/*.zip
 
-      - name: Release on tag
+      - name: Attach the FOMOD to a release when tagging
         if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: gh release create "${{ github.ref_name }}" dist/*.zip --title "${{ github.ref_name }}" --notes "Rebuilt Mantella SKSE plugins for Skyrim AE 1.7.104 (Address Library V5). Install AFTER the base Mantella mod."
-        env:
-          GH_TOKEN: ${{ github.token }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          body: |
+            Mantella SKSE plugin DLLs rebuilt for Skyrim AE 1.7.104 (Address
+            Library V5). Install AFTER the base Mantella mod (Nexus 98631),
+            which stays enabled and provides Mantella.esp, the Papyrus scripts
+            and MantellaSoftware/.
