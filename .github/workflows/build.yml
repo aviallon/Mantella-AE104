@@ -93,12 +93,15 @@ jobs:
 
       - name: Build the four plugins (MSVC, vcpkg overlay port = CommonLibSSE-NG 6.8.0)
         shell: bash
-        # Git Bash rewrites arguments that look like POSIX paths, so MSVC
-        # defines are written as -DUNICODE (cl.exe accepts -D): a leading /D
+        # Git Bash rewrites arguments that look like POSIX paths, so ALL flags
+        # use the dash syntax (cl.exe accepts -D/-EHsc/-GR/-W3): a leading /D
         # becomes 'C:/Program Files/Git/DUNICODE'. Real paths ($PWD/ports) must
         # KEEP the MSYS conversion, so no blanket MSYS2_ARG_CONV_EXCL here — an
         # earlier version of this step set it and vcpkg then refused
         # 'D:/d/a/.../ports' as a missing overlay directory.
+        # Overriding CMAKE_CXX_FLAGS also wipes CMake's MSVC defaults
+        # (/EHsc /GR /W3): re-add them (in dash form) or cl warns C4530 and
+        # ships without unwind semantics.
         # NB: the runner carries VS 18 (2026), so the VS *generator* is a trap —
         # msvc-dev-cmd + Ninja above sidesteps it.
         run: |
@@ -114,7 +117,7 @@ jobs:
               -DVCPKG_TARGET_TRIPLET=x64-windows-static-md \
               "-DVCPKG_OVERLAY_PORTS=$PWD/ports" \
               -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-              "-DCMAKE_CXX_FLAGS=-DUNICODE -D_UNICODE -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS"
+              "-DCMAKE_CXX_FLAGS=-DWIN32 -D_WINDOWS -DUNICODE -D_UNICODE -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS -EHsc -GR -W3"
             cmake --build "build/$m"
             mkdir -p out
             cp "build/$m/$out" "out/$out"

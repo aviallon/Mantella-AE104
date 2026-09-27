@@ -8,10 +8,11 @@
 +# --- cross-build fixup (clang-cl), see Mantella-AE104/patches/ ---
 +# cpr adds "-Wall -Wextra -Wpedantic -Werror" for every non-MSVC compiler.
 +# Under clang-cl -Wpedantic turns C++23 code into "incompatible with C++98"
-+# hard errors. Third-party code: keep the warnings, drop the -Werror.
-+target_compile_options(cpr PRIVATE -Wno-error -Wno-c++98-compat
-+    -Wno-c++98-compat-pedantic -Wno-exit-time-destructors
-+    -Wno-global-constructors)
++# hard errors. Third-party code: keep the warnings, drop the -Werror. Clang-
++# only: real cl.exe rejects these flags (D8021), and its own branch above never
++# adds -Werror in the first place.
++target_compile_options(cpr PRIVATE
++    "$<$<CXX_COMPILER_ID:Clang>:-Wno-error;-Wno-c++98-compat;-Wno-c++98-compat-pedantic;-Wno-exit-time-destructors;-Wno-global-constructors>")
  FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
  FetchContent_MakeAvailable(json)
  
