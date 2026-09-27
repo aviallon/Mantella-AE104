@@ -93,6 +93,12 @@ jobs:
 
       - name: Build the four plugins (MSVC, vcpkg overlay port = CommonLibSSE-NG 6.8.0)
         shell: bash
+        # Git Bash rewrites arguments that look like POSIX paths (/DUNICODE ->
+        # C:/Program Files/Git/DUNICODE), which turns MSVC defines into "source
+        # files". The runner carries VS 18 (2026), so the VS *generator* is also
+        # a trap — msvc-dev-cmd + Ninja above sidesteps it.
+        env:
+          MSYS2_ARG_CONV_EXCL: "*"
         run: |
           set -euo pipefail
           # vcpkg refuses VCPKG_DEFAULT_BINARY_CACHE pointing at a directory
