@@ -9,10 +9,12 @@ name: build
 #     build, so a green run cannot come from the wrong reader;
 #   * the upstream plugin sources pinned by commit;
 #   * verification gates that can fail (tools/verify-dll.py parses the
-#     SKSEPlugin_Version export and the V5 reader strings;
-#     tools/validate_fomod.py rejects a FOMOD whose <file source> is not a real
-#     file — the bug that shipped as "Copied 0 item(s)" in Amethyst);
-#   * the FOMOD zip as the release asset (softprops/action-gh-release).
+#     SKSEPlugin_Version export and the V5 reader strings);
+#   * packaging, verification and release delegated to the shared modforge
+#     pipeline (aviallon-mods/modforge): the zip is assembled from
+#     fomod-package.toml's explicit file list (+ meta.ini stamped at the root),
+#     gated by the mutation-tested verify_fomod.py and attached to the tag's
+#     release.
 
 on:
   push:
@@ -131,44 +133,45 @@ jobs:
         shell: bash
         run: python tools/verify-dll.py out/*.dll
 
-      - uses: actions/upload-artifact@v4
+      # Packaging, verification and release are DELEGATED to the shared
+      # modforge pipeline (the `package` job below): it assembles the zip from
+      # fomod-package.toml's explicit file list and gates it with the
+      # mutation-tested verify_fomod.py. The four DLLs in out/ are therefore
+      # just handed over through a per-run actions/cache staging entry, which
+      # `package` restores with the same key. (The shared workflow's own
+      # download_run_id input cannot carry them yet: its job token is scoped to
+      # contents:write while the artifact download API needs actions:read.)
+      # The handoff is same-OS on purpose (package runs on windows-latest too):
+      # cache entries do not transfer between Windows and Linux runners.
+      - name: Hand the built DLLs to the packaging job (per-run cache)
+        uses: actions/cache@v4
         with:
-          name: Mantella-SKSE-Plugins
-          path: out/*.dll
-
-  fomod:
-    name: FOMOD package + validation
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: Mantella-SKSE-Plugins
           path: out
+          key: mantella-pkg-stage-${{ github.run_id }}
 
-      - name: Validate the FOMOD and build the archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libxml2-utils
-          WORK="$PWD" OUTDIR="$PWD/dist" python3 tools/package.py
-          python3 tools/validate_fomod.py --zip dist/Mantella-AE1.7.104-SKSE-Plugins-fixed.zip
-          sha256sum dist/*.zip
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Mantella-AE1.7.104-SKSE-Plugins-FOMOD
-          path: dist/*.zip
-
-      - name: Attach the FOMOD to a release when tagging
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.zip
-          body: |
-            Mantella SKSE plugin DLLs rebuilt for Skyrim AE 1.7.104 (Address
-            Library V5). Install AFTER the base Mantella mod (Nexus 98631),
-            which stays enabled and provides Mantella.esp, the Papyrus scripts
-            and MantellaSoftware/.
+  # ===========================================================================
+  # PACKAGING / VERIFICATION / RELEASE - delegated to the shared modforge
+  # pipeline (aviallon-mods/modforge).
+  # ===========================================================================
+  # The FOMOD override zip (Mantella-AE1.7.104-SKSE-Plugins-fixed.zip - name
+  # preserved) is assembled from fomod-package.toml's EXPLICIT file list with
+  # meta.ini stamped at the zip root - every FOMOD source= is a regular file by
+  # construction, the defect that shipped as "Copied 0 item(s)" in Amethyst -
+  # and only ships when verify_fomod.py passes: exact entry list, a
+  # ModuleConfig.xml that resolves to >= 1 <plugin>, payload byte-identity with
+  # the build inputs, complete meta.ini. A pushed tag v* attaches the verified
+  # zip to that tag's release.
+  package:
+    name: package + verify + release (modforge)
+    needs: build
+    permissions:
+      contents: write
+    uses: aviallon-mods/modforge/.github/workflows/build-fomod.yml@main
+    with:
+      mod_name: Mantella-SKSE-Plugins
+      package_specs: fomod-package.toml
+      submodules: false
+      runs_on: windows-latest
+      cache_paths: out
+      cache_key: mantella-pkg-stage-${{ github.run_id }}
+      extra_artifact: out/*.dll

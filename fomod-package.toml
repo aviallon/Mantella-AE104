@@ -1,0 +1,54 @@
+# Mantella - SKSE Plugins (AE 1.7.104) - package spec for the FOMOD override zip.
+#
+# Consumed by the shared aviallon-mods/modforge pipeline:
+#   tools/package_fomod.py assembles the zip from EXACTLY this file list plus a
+#   build-stamped meta.ini at the root, and tools/verify_fomod.py refuses to
+#   ship the result unless the entry list, the ModuleConfig <plugin> resolution,
+#   the payload byte-identity and the meta.ini all check out.
+#
+# Entry list mirrors what tools/package.py built (the zip name is preserved
+# exactly; the pipeline adds meta.ini at the root so Amethyst/MO2 can read the
+# metadata on install):
+#
+#   fomod/ModuleConfig.xml, fomod/info.xml,
+#   SKSE/Plugins/{SKSE_HTTP,MantellaDialogue,MantellaLauncher,MantellaSubtitles}.dll,
+#   meta.ini
+#
+# The DLLs come from the build job's out/ staging through its per-run cache
+# handoff (see .github/workflows/build.yml).
+
+name = "Mantella-SKSE-Plugins"
+zip_name = "Mantella-AE1.7.104-SKSE-Plugins-fixed.zip"
+version = { regex = ['fomod/info.xml', '<name>[^<]*AE ([0-9.]+)\)</name>'] }
+game_name = "skyrimspecialedition"
+author = "aviallon"
+description = "Mantella's four SKSE plugin DLLs rebuilt against CommonLibSSE-NG 6.8.0 for Skyrim AE 1.7.104, as a FOMOD override of the base mod."
+nexus_name = "Mantella — SKSE Plugins (AE 1.7.104)"
+nexus_url = "https://github.com/aviallon-mods/Mantella-AE104"
+file_category = "MAIN"
+requirements = ["30379:SKSE", "32444:Address Library", "98631:Mantella"]
+fomod = true
+
+[[files]]
+src = "fomod/ModuleConfig.xml"
+dest = "fomod/ModuleConfig.xml"
+
+[[files]]
+src = "fomod/info.xml"
+dest = "fomod/info.xml"
+
+[[files]]
+src = "out/SKSE_HTTP.dll"
+dest = "SKSE/Plugins/SKSE_HTTP.dll"
+
+[[files]]
+src = "out/MantellaDialogue.dll"
+dest = "SKSE/Plugins/MantellaDialogue.dll"
+
+[[files]]
+src = "out/MantellaLauncher.dll"
+dest = "SKSE/Plugins/MantellaLauncher.dll"
+
+[[files]]
+src = "out/MantellaSubtitles.dll"
+dest = "SKSE/Plugins/MantellaSubtitles.dll"
